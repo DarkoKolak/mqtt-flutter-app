@@ -19,7 +19,6 @@ class ConnectionProvider extends ChangeNotifier {
 
   final List<MqttConnection> connections = [];
 
-  /// connId -> { topic: qosInt }
   final Map<String, Map<String, int>> subsByConnId = {};
 
   MqttConnection? activeConnection;
@@ -45,8 +44,6 @@ class ConnectionProvider extends ChangeNotifier {
   ConnectionProvider() {
     _loadFromStorage();
   }
-
-  // ------------------- persistence -------------------
 
   String _pwdKey(String connId) => 'mqtt_pwd_$connId';
 
@@ -98,8 +95,6 @@ class ConnectionProvider extends ChangeNotifier {
     await prefs.setString(_kSubsKey, json.encode(subsByConnId));
   }
 
-  // ------------------- connections CRUD -------------------
-
   Future<void> addConnection(MqttConnection conn) async {
     connections.add(conn);
     await _saveConnections();
@@ -144,8 +139,6 @@ class ConnectionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ------------------- subscriptions (topic + qos) -------------------
-
   Future<void> addOrUpdateSubForActive(String topic, int qos) async {
     final connId = activeConnection?.id;
     if (connId == null) return;
@@ -161,12 +154,10 @@ class ConnectionProvider extends ChangeNotifier {
     final connId = activeConnection?.id;
     if (connId == null) return;
 
-    // 1) remove locally first so UI updates instantly
     subsByConnId[connId]?.remove(topic);
     await _saveSubs();
     notifyListeners();
 
-    // 2) then best-effort unsubscribe, never disconnect on failure
     if (alsoUnsubscribe && isConnected) {
       try {
         mqttService.unsubscribe(topic);
@@ -175,8 +166,6 @@ class ConnectionProvider extends ChangeNotifier {
       }
     }
   }
-
-  // ------------------- connect/disconnect -------------------
 
   Future<bool> connect(MqttConnection conn) async {
     activeConnection = conn;
@@ -206,7 +195,6 @@ class ConnectionProvider extends ChangeNotifier {
         },
       );
 
-      // If connect returned, it's connected -> resubscribe saved topics
       status = ConnectionStatus.connected;
 
       final saved = subsByConnId[conn.id] ?? const {};

@@ -50,7 +50,7 @@ class _MainScreenState extends State<MainScreen> {
     final provider = context.watch<ConnectionProvider>();
 
     final topicsIconColor =
-        provider.isConnected ? Colors.green : null; // null = default theme color
+        provider.isConnected ? Colors.green : null;
 
     return Scaffold(
       body: _screens[_selectedIndex],

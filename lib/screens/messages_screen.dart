@@ -23,11 +23,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? _sub;
 
-  // publish options
   int _pubQos = 0;
   bool _retain = false;
 
-  // view option
   bool _prettyJson = true;
 
   @override
@@ -160,7 +158,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
               ),
             ),
 
-            // Publish options row
             SafeArea(
               top: false,
               child: Padding(
@@ -191,7 +188,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
               ),
             ),
 
-            // Composer
             SafeArea(
               top: false,
               child: Padding(

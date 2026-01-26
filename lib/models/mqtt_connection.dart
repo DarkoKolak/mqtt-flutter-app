@@ -7,14 +7,13 @@ class MqttConnection {
   final String host;
   final int port;
   final bool useTls;
-  final String protocol; // TCP, WebSocket
+  final String protocol;
   final String wsPath;
 
-  // Icon OR custom image
-  final int? iconCodePoint; // store IconData.codePoint
-  final String? iconFontFamily; // usually 'MaterialIcons'
-  final String? iconFontPackage; // usually null
-  final String? imagePath; // local file path (picked from gallery)
+  final int? iconCodePoint;
+  final String? iconFontFamily;
+  final String? iconFontPackage;
+  final String? imagePath;
 
   final String clientId;
 
@@ -38,7 +37,6 @@ class MqttConnection {
     String? id,
   }) : id = id ?? const Uuid().v4();
 
-  /// Convenience constructor for "icon mode"
   factory MqttConnection.withIcon({
     required String name,
     required String host,
@@ -71,7 +69,6 @@ class MqttConnection {
     );
     }
 
-  /// Convenience constructor for "image mode"
   factory MqttConnection.withImage({
     required String name,
     required String host,
@@ -177,7 +174,7 @@ class MqttConnection {
       iconFontPackage: json['iconFontPackage'] as String?,
       imagePath: json['imagePath'] as String?,
       username: json['username'] as String?,
-      password: null, // stored in secure storage
+      password: null,
     );
   }
 }

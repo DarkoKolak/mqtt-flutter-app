@@ -20,7 +20,6 @@ class ConnectionsScreen extends StatelessWidget {
     }
 
     Future<void> confirmAndDelete() async {
-      // helper to avoid capturing wrong conn in loop
     }
 
     return Scaffold(
@@ -51,7 +50,6 @@ class ConnectionsScreen extends StatelessWidget {
             childAspectRatio: 1,
           ),
           itemBuilder: (context, index) {
-            // Add Connection card
             if (index == provider.connections.length) {
               return GestureDetector(
                 onTap: provider.isConnecting
@@ -158,7 +156,6 @@ class ConnectionsScreen extends StatelessWidget {
                   color: Colors.grey[900],
                   child: Stack(
                     children: [
-                      // Delete button (top-left)
                       Positioned(
                         top: 6,
                         left: 6,
@@ -169,7 +166,6 @@ class ConnectionsScreen extends StatelessWidget {
                         ),
                       ),
 
-                      // Edit button (top-right)
                       Positioned(
                         top: 6,
                         right: 6,

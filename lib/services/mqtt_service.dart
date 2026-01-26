@@ -21,24 +21,20 @@ class MqttService {
   }) async {
     final isWs = conn.protocol == 'WebSocket';
 
-    // Build proper address
     final server = isWs
         ? '${conn.useTls ? 'wss' : 'ws'}://${conn.host}:${conn.port}${_normalizeWsPath(conn.wsPath)}'
         : conn.host;
 
-    // Create client
     client = isWs
         ? MqttServerClient(server, conn.clientId)
         : MqttServerClient.withPort(server, conn.clientId, conn.port);
 
-    // IMPORTANT: ensure correct port is used (also for WS)
     client.port = conn.port;
 
     client.logging(on: false);
     client.keepAlivePeriod = 20;
     client.connectTimeoutPeriod = 10;
 
-    // ---- callbacks ----
     client.onConnected = () {
       print('[MQTT] Connected');
       onConnected?.call();
@@ -56,11 +52,9 @@ class MqttService {
       onFailed?.call(Exception('Failed connection attempt code=$code'));
     };
 
-    // ---- transport ----
     if (isWs) {
       client.useWebSocket = true;
       client.websocketProtocols = const ['mqtt'];
-      // Do NOT set client.secure for wss; the ws URL already contains scheme.
     } else {
       client.secure = conn.useTls;
       if (conn.useTls) {
@@ -68,13 +62,11 @@ class MqttService {
       }
     }
 
-    // MQTT connect message
     client.connectionMessage = MqttConnectMessage()
         .withClientIdentifier(conn.clientId)
         .startClean()
         .withWillQos(MqttQos.atMostOnce);
 
-    // Connect
     try {
       print('[MQTT] Connecting to $server (protocol=${conn.protocol}, tls=${conn.useTls})');
       await client.connect(conn.username, conn.password);
@@ -84,7 +76,6 @@ class MqttService {
       rethrow;
     }
 
-    // Verify status
     final status = client.connectionStatus;
     if (status?.state != MqttConnectionState.connected) {
       final rc = status?.returnCode;
@@ -108,7 +99,6 @@ class MqttService {
   }
 
 void unsubscribe(String topic) {
-  // Best effort. Never disconnect because of unsubscribe.
   try {
     if (!isConnected) return;
     client.unsubscribe(topic);

@@ -30,7 +30,7 @@ class _TopicsScreenState extends State<TopicsScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final subs = provider.activeSubs; // topic -> qosInt
+    final subs = provider.activeSubs;
     final conn = provider.activeConnection;
 
     return Scaffold(
@@ -63,7 +63,6 @@ class _TopicsScreenState extends State<TopicsScreen> {
               child: provider.isConnected
                   ? Column(
                       children: [
-                        // Composer card
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.all(12),
@@ -79,8 +78,6 @@ class _TopicsScreenState extends State<TopicsScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 10),
-
-                                // ✅ overflow-safe row
                                 Row(
                                   children: [
                                     SizedBox(

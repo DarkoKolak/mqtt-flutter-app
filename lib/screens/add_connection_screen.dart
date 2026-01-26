@@ -20,7 +20,6 @@ class AddConnectionScreen extends StatefulWidget {
 class _AddConnectionScreenState extends State<AddConnectionScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // UI controllers
   final _urlController = TextEditingController();
   final _hostController = TextEditingController();
   final _portController = TextEditingController();
@@ -29,28 +28,27 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
   final _passController = TextEditingController();
   final _nameController = TextEditingController();
 
-  // Avatar: icon OR image
   IconData selectedIcon = Icons.cloud;
   String? _pickedImagePath;
   final _picker = ImagePicker();
 
-  // Connection details
-  String protocol = 'TCP'; // TCP, WebSocket
+
+  String protocol = 'TCP';
   bool useTls = false;
 
   final List<IconData> _iconOptions = const [
-  Icons.router,                 // router
-  Icons.wifi,                   // wifi
-  Icons.sensors,                // sensor
-  Icons.devices,                // generic device
-  Icons.lightbulb,              // smart light
-  Icons.power,                  // power / plug
-  Icons.thermostat,             // thermostat
-  Icons.lock,                   // smart lock
-  Icons.videocam,               // camera
-  Icons.speaker,                // speaker
-  Icons.water_drop,             // water/leak sensor
-  Icons.local_fire_department,  // smoke/fire sensor
+  Icons.router,                
+  Icons.wifi,                   
+  Icons.sensors,               
+  Icons.devices,                
+  Icons.lightbulb,             
+  Icons.power,                 
+  Icons.thermostat,            
+  Icons.lock,                  
+  Icons.videocam,               
+  Icons.speaker,              
+  Icons.water_drop,            
+  Icons.local_fire_department,  
   ];
 
   @override
@@ -65,13 +63,11 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
       _wsPathController.text = ex.wsPath.isEmpty ? '/mqtt' : ex.wsPath;
 
       _userController.text = ex.username ?? '';
-      // password is not stored in JSON (secure storage), so keep empty by default
       _passController.text = '';
 
       protocol = ex.protocol;
       useTls = ex.useTls;
 
-      // ✅ new model: iconOrDefault and imagePath
       selectedIcon = ex.iconOrDefault;
       _pickedImagePath = ex.imagePath;
 
@@ -111,7 +107,6 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
 
               Row(
                 children: [
-                  // preview
                   Container(
                     width: 64,
                     height: 64,
@@ -181,7 +176,7 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
                     borderRadius: BorderRadius.circular(10),
                     onTap: () => setState(() {
                       selectedIcon = icon;
-                      _pickedImagePath = null; // choosing icon disables photo
+                      _pickedImagePath = null;
                     }),
                     child: Container(
                       decoration: BoxDecoration(
@@ -371,7 +366,6 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
       );
       if (xfile == null) return;
 
-      // Copy into app documents folder so it remains accessible
       final dir = await getApplicationDocumentsDirectory();
       final ext = xfile.path.split('.').last;
       final fileName = 'conn_${DateTime.now().millisecondsSinceEpoch}.$ext';
@@ -399,7 +393,6 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
     final provider = context.read<ConnectionProvider>();
 
     if (widget.existing == null) {
-      // ✅ create new using factories
       final conn = _pickedImagePath != null
           ? MqttConnection.withImage(
               name: name,
@@ -426,7 +419,6 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
 
       await provider.addConnection(conn);
     } else {
-      // ✅ update existing with copyWith
       final updated = widget.existing!.copyWith(
         name: name,
         host: host,
