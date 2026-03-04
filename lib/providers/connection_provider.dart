@@ -18,7 +18,6 @@ class ConnectionProvider extends ChangeNotifier {
   final MqttService mqttService = MqttService();
 
   final List<MqttConnection> connections = [];
-
   final Map<String, Map<String, int>> subsByConnId = {};
 
   MqttConnection? activeConnection;
@@ -27,6 +26,9 @@ class ConnectionProvider extends ChangeNotifier {
   String? lastError;
 
   bool isLoaded = false;
+
+  // Token to ignore callbacks from older connect attempts
+  int _connectEpoch = 0;
 
   bool get isConnected =>
       status == ConnectionStatus.connected &&
@@ -161,13 +163,17 @@ class ConnectionProvider extends ChangeNotifier {
     if (alsoUnsubscribe && isConnected) {
       try {
         mqttService.unsubscribe(topic);
-      } catch (e) {
-        print('[MQTT] Unsubscribe failed but ignored: $e');
-      }
+      } catch (_) {}
     }
   }
 
   Future<bool> connect(MqttConnection conn) async {
+    // New attempt token
+    final int myEpoch = ++_connectEpoch;
+
+    // Disconnect CURRENT client without changing epoch again
+    mqttService.disconnect();
+
     activeConnection = conn;
     status = ConnectionStatus.connecting;
     lastError = null;
@@ -177,27 +183,44 @@ class ConnectionProvider extends ChangeNotifier {
       await mqttService.connect(
         conn,
         onConnected: () {
+          if (myEpoch != _connectEpoch) return;
+
           status = ConnectionStatus.connected;
           lastError = null;
+          activeConnection = conn;
           notifyListeners();
         },
         onDisconnected: () {
+          if (myEpoch != _connectEpoch) return;
+
           status = ConnectionStatus.idle;
           lastError = null;
-          activeConnection = null;
+
+          // do NOT clear activeConnection here (avoids UI desync)
           notifyListeners();
         },
         onFailed: (e) {
+          if (myEpoch != _connectEpoch) return;
+
           status = ConnectionStatus.failed;
           lastError = e.toString();
-          activeConnection = null;
           notifyListeners();
         },
       );
 
-      status = ConnectionStatus.connected;
+      if (myEpoch != _connectEpoch) return false;
 
-      final saved = subsByConnId[conn.id] ?? const {};
+      if (!mqttService.isConnected) {
+        status = ConnectionStatus.failed;
+        lastError = 'Connect finished but client is not connected.';
+        notifyListeners();
+        return false;
+      }
+
+      status = ConnectionStatus.connected;
+      activeConnection = conn;
+
+      final saved = subsByConnId[conn.id] ?? const <String, int>{};
       for (final entry in saved.entries) {
         try {
           mqttService.subscribe(entry.key, _toQos(entry.value));
@@ -207,15 +230,19 @@ class ConnectionProvider extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
+      if (myEpoch != _connectEpoch) return false;
+
       status = ConnectionStatus.failed;
       lastError = e.toString();
-      activeConnection = null;
       notifyListeners();
       return false;
     }
   }
 
   void disconnect() {
+    // invalidate callbacks immediately
+    _connectEpoch++;
+
     mqttService.disconnect();
     activeConnection = null;
     status = ConnectionStatus.idle;

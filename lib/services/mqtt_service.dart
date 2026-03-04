@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:mqtt_client/mqtt_client.dart';
@@ -6,12 +7,12 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 import '../models/mqtt_connection.dart';
 
 class MqttService {
-  late MqttServerClient client;
+  MqttServerClient? _client;
 
   bool get isConnected =>
-      client.connectionStatus?.state == MqttConnectionState.connected;
+      _client?.connectionStatus?.state == MqttConnectionState.connected;
 
-  Stream<List<MqttReceivedMessage<MqttMessage>>>? get messages => client.updates;
+  Stream<List<MqttReceivedMessage<MqttMessage>>>? get messages => _client?.updates;
 
   Future<void> connect(
     MqttConnection conn, {
@@ -25,61 +26,85 @@ class MqttService {
         ? '${conn.useTls ? 'wss' : 'ws'}://${conn.host}:${conn.port}${_normalizeWsPath(conn.wsPath)}'
         : conn.host;
 
-    client = isWs
+    final localClient = isWs
         ? MqttServerClient(server, conn.clientId)
         : MqttServerClient.withPort(server, conn.clientId, conn.port);
 
-    client.port = conn.port;
+    // Make this client current BEFORE callbacks can fire
+    _client = localClient;
 
-    client.logging(on: false);
-    client.keepAlivePeriod = 20;
-    client.connectTimeoutPeriod = 10;
+    localClient.port = conn.port;
 
-    client.onConnected = () {
+    localClient.logging(on: false);
+
+    // Keepalive + timeouts
+    localClient.keepAlivePeriod = 20;
+    localClient.connectTimeoutPeriod = 10;
+
+    // Avoid auto reconnect surprises while debugging
+    localClient.autoReconnect = false;
+    localClient.resubscribeOnAutoReconnect = false;
+
+    localClient.onConnected = () {
+      if (!identical(_client, localClient)) return;
       print('[MQTT] Connected');
       onConnected?.call();
     };
 
-    client.onDisconnected = () {
-      final st = client.connectionStatus?.state;
-      final rc = client.connectionStatus?.returnCode;
+    localClient.onDisconnected = () {
+      if (!identical(_client, localClient)) return;
+      final st = localClient.connectionStatus?.state;
+      final rc = localClient.connectionStatus?.returnCode;
       print('[MQTT] Disconnected. state=$st returnCode=$rc');
       onDisconnected?.call();
     };
 
-    client.onFailedConnectionAttempt = (int code) {
+    localClient.onFailedConnectionAttempt = (int code) {
+      if (!identical(_client, localClient)) return;
       print('[MQTT] Failed connection attempt code=$code');
       onFailed?.call(Exception('Failed connection attempt code=$code'));
     };
 
     if (isWs) {
-      client.useWebSocket = true;
-      client.websocketProtocols = const ['mqtt'];
+      localClient.useWebSocket = true;
+      localClient.websocketProtocols = const ['mqtt'];
     } else {
-      client.secure = conn.useTls;
+      localClient.secure = conn.useTls;
       if (conn.useTls) {
-        client.securityContext = SecurityContext.defaultContext;
+        localClient.securityContext = SecurityContext.defaultContext;
       }
     }
 
-    client.connectionMessage = MqttConnectMessage()
+    localClient.connectionMessage = MqttConnectMessage()
         .withClientIdentifier(conn.clientId)
         .startClean()
         .withWillQos(MqttQos.atMostOnce);
 
     try {
       print('[MQTT] Connecting to $server (protocol=${conn.protocol}, tls=${conn.useTls})');
-      await client.connect(conn.username, conn.password);
+
+      // HARD timeout so UI never stays "Connecting..." forever
+      await localClient
+          .connect(conn.username, conn.password)
+          .timeout(const Duration(seconds: 12), onTimeout: () {
+        throw TimeoutException('MQTT connect timed out after 12s');
+      });
     } catch (e) {
-      client.disconnect();
+      if (identical(_client, localClient)) {
+        try {
+          localClient.disconnect();
+        } catch (_) {}
+      }
       onFailed?.call(e);
       rethrow;
     }
 
-    final status = client.connectionStatus;
+    final status = localClient.connectionStatus;
     if (status?.state != MqttConnectionState.connected) {
       final rc = status?.returnCode;
-      client.disconnect();
+      try {
+        localClient.disconnect();
+      } catch (_) {}
       final err = Exception('MQTT connect failed: $rc');
       onFailed?.call(err);
       throw err;
@@ -92,20 +117,24 @@ class MqttService {
   }
 
   void subscribe(String topic, MqttQos qos) {
-    if (!isConnected) {
+    final c = _client;
+    if (c == null || !isConnected) {
       throw StateError('MQTT client is not connected');
     }
-    client.subscribe(topic, qos);
+    c.subscribe(topic, qos);
   }
 
-void unsubscribe(String topic) {
-  try {
-    if (!isConnected) return;
-    client.unsubscribe(topic);
-  } catch (e) {
-    print('[MQTT] Unsubscribe ignored error: $e');
+  void unsubscribe(String topic) {
+    final c = _client;
+    if (c == null) return;
+
+    try {
+      if (!isConnected) return;
+      c.unsubscribe(topic);
+    } catch (e) {
+      print('[MQTT] Unsubscribe ignored error: $e');
+    }
   }
-}
 
   void publish(
     String topic,
@@ -113,17 +142,20 @@ void unsubscribe(String topic) {
     required MqttQos qos,
     required bool retain,
   }) {
-    if (!isConnected) {
+    final c = _client;
+    if (c == null || !isConnected) {
       throw StateError('MQTT client is not connected');
     }
     final builder = MqttClientPayloadBuilder();
     builder.addUTF8String(message);
-    client.publishMessage(topic, qos, builder.payload!, retain: retain);
+    c.publishMessage(topic, qos, builder.payload!, retain: retain);
   }
 
   void disconnect() {
+    final c = _client;
+    _client = null; // invalidate immediately so old callbacks are ignored
     try {
-      client.disconnect();
+      c?.disconnect();
     } catch (_) {}
   }
 }

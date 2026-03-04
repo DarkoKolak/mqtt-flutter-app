@@ -75,9 +75,8 @@ class ConnectionsScreen extends StatelessWidget {
 
             final isActive = provider.activeConnection?.id == conn.id;
             final isConnected =
-                isActive && provider.status == ConnectionStatus.connected;
-            final isConnecting =
-                isActive && provider.status == ConnectionStatus.connecting;
+                isActive && provider.isConnected;
+            final isConnecting = isActive && provider.isConnecting;
 
             void openEdit() {
               Navigator.push(
@@ -125,6 +124,13 @@ class ConnectionsScreen extends StatelessWidget {
               onTap: provider.isConnecting
                   ? null
                   : () async {
+                            if (isConnected) {
+                        provider.disconnect();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Disconnected: ${conn.name}')),
+                        );
+                        return;
+                      }
                       final ok = await provider.connect(conn);
 
                       if (!context.mounted) return;
