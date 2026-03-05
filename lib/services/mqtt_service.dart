@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:typed_data/typed_data.dart';
 
 import '../models/mqtt_connection.dart';
+import '../models/payload_format.dart';
 
 class MqttService {
   MqttServerClient? _client;
@@ -111,6 +115,89 @@ class MqttService {
     }
   }
 
+  // -------------------- Publish (multi-format) --------------------
+
+  /// Publish text/json/binary payloads.
+  /// - text/json -> UTF-8
+  /// - hex/base64 -> bytes
+  void publishPayload(
+    String topic,
+    String input, {
+    required MqttQos qos,
+    required bool retain,
+    required PayloadFormat format,
+  }) {
+    final c = _client;
+    if (c == null || !isConnected) {
+      throw StateError('MQTT client is not connected');
+    }
+
+    final bytes = _encodeInput(input, format);
+
+    final builder = MqttClientPayloadBuilder();
+    builder.addBuffer(Uint8Buffer()..addAll(bytes));
+
+    c.publishMessage(topic, qos, builder.payload!, retain: retain);
+  }
+
+  /// Backwards-compatible: old code calls publish(topic, text, ...)
+  void publish(
+    String topic,
+    String message, {
+    required MqttQos qos,
+    required bool retain,
+  }) {
+    publishPayload(
+      topic,
+      message,
+      qos: qos,
+      retain: retain,
+      format: PayloadFormat.text,
+    );
+  }
+
+  Uint8List _encodeInput(String input, PayloadFormat format) {
+    switch (format) {
+      case PayloadFormat.text:
+        return Uint8List.fromList(utf8.encode(input));
+
+      case PayloadFormat.json:
+        // Validate JSON (throws if invalid)
+        final decoded = json.decode(input);
+        // Normalize JSON formatting before sending
+        final normalized = json.encode(decoded);
+        return Uint8List.fromList(utf8.encode(normalized));
+
+      case PayloadFormat.base64:
+        return base64.decode(_stripWhitespace(input));
+
+      case PayloadFormat.hex:
+        return _hexToBytes(_stripWhitespace(input));
+    }
+  }
+
+  String _stripWhitespace(String s) => s.replaceAll(RegExp(r'\s+'), '');
+
+  Uint8List _hexToBytes(String hex) {
+    final cleaned = hex.startsWith('0x') ? hex.substring(2) : hex;
+
+    if (cleaned.isEmpty) return Uint8List(0);
+    if (cleaned.length % 2 != 0) {
+      throw const FormatException('HEX must have even length (2 chars per byte).');
+    }
+
+    final out = Uint8List(cleaned.length ~/ 2);
+    for (int i = 0; i < cleaned.length; i += 2) {
+      final byteStr = cleaned.substring(i, i + 2);
+      final v = int.tryParse(byteStr, radix: 16);
+      if (v == null) throw FormatException('Invalid HEX byte: "$byteStr"');
+      out[i ~/ 2] = v;
+    }
+    return out;
+  }
+
+  // -------------------- Other helpers --------------------
+
   String _normalizeWsPath(String p) {
     final path = p.trim().isEmpty ? '/mqtt' : p.trim();
     return path.startsWith('/') ? path : '/$path';
@@ -134,21 +221,6 @@ class MqttService {
     } catch (e) {
       print('[MQTT] Unsubscribe ignored error: $e');
     }
-  }
-
-  void publish(
-    String topic,
-    String message, {
-    required MqttQos qos,
-    required bool retain,
-  }) {
-    final c = _client;
-    if (c == null || !isConnected) {
-      throw StateError('MQTT client is not connected');
-    }
-    final builder = MqttClientPayloadBuilder();
-    builder.addUTF8String(message);
-    c.publishMessage(topic, qos, builder.payload!, retain: retain);
   }
 
   void disconnect() {

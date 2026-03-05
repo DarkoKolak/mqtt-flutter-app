@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:provider/provider.dart';
 
+import '../models/payload_format.dart';
 import '../providers/connection_provider.dart';
 
 enum MsgDir { incoming, outgoing }
@@ -26,6 +28,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
   int _pubQos = 0;
   bool _retain = false;
 
+  PayloadFormat _format = PayloadFormat.text;
+
   bool _prettyJson = true;
 
   @override
@@ -39,7 +43,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
         if (m.topic != widget.topic) continue;
 
         final pub = m.payload as MqttPublishMessage;
-        final payload = MqttPublishPayload.bytesToStringAsString(pub.payload.message);
+
+        final Uint8List bytes = Uint8List.fromList(pub.payload.message);
+        final payloadText = _bytesToDisplay(bytes);
 
         final qos = pub.header?.qos ?? MqttQos.atMostOnce;
         final retain = pub.header?.retain ?? false;
@@ -48,7 +54,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         setState(() {
           _messages.add(_UiMsg(
             dir: MsgDir.incoming,
-            text: payload,
+            text: payloadText,
             ts: DateTime.now(),
             qos: qos,
             retain: retain,
@@ -79,23 +85,30 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
     final qos = _toQos(_pubQos);
 
-    provider.mqttService.publish(
-      widget.topic,
-      text,
-      qos: qos,
-      retain: _retain,
-    );
-
-    setState(() {
-      _messages.add(_UiMsg(
-        dir: MsgDir.outgoing,
-        text: text,
-        ts: DateTime.now(),
+    try {
+      provider.mqttService.publishPayload(
+        widget.topic,
+        text,
         qos: qos,
         retain: _retain,
-      ));
-      _controller.clear();
-    });
+        format: _format,
+      );
+
+      setState(() {
+        _messages.add(_UiMsg(
+          dir: MsgDir.outgoing,
+          text: _outgoingPreview(text, _format),
+          ts: DateTime.now(),
+          qos: qos,
+          retain: _retain,
+        ));
+        _controller.clear();
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Publish failed: $e')),
+      );
+    }
   }
 
   @override
@@ -158,11 +171,15 @@ class _MessagesScreenState extends State<MessagesScreen> {
               ),
             ),
 
+            // Row 1: QoS + Retain + Format
             SafeArea(
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-                child: Row(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 6,
                   children: [
                     DropdownButton<int>(
                       value: _pubQos,
@@ -171,10 +188,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         DropdownMenuItem(value: 1, child: Text('QoS 1')),
                         DropdownMenuItem(value: 2, child: Text('QoS 2')),
                       ],
-                      onChanged: provider.isConnected ? (v) => setState(() => _pubQos = v ?? 0) : null,
+                      onChanged:
+                          provider.isConnected ? (v) => setState(() => _pubQos = v ?? 0) : null,
                     ),
-                    const SizedBox(width: 12),
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text('Retain'),
                         Switch(
@@ -183,11 +201,29 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         ),
                       ],
                     ),
+                    DropdownButton<PayloadFormat>(
+                      value: _format,
+                      items: PayloadFormat.values
+                          .map(
+                            (f) => DropdownMenuItem(
+                              value: f,
+                              child: Text(f.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: provider.isConnected
+                          ? (v) {
+                              if (v == null) return;
+                              setState(() => _format = v);
+                            }
+                          : null,
+                    ),
                   ],
                 ),
               ),
             ),
 
+            // Row 2: input + send
             SafeArea(
               top: false,
               child: Padding(
@@ -204,7 +240,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         },
                         decoration: InputDecoration(
                           hintText: provider.isConnected
-                              ? 'Type a message...'
+                              ? _hintForFormat(_format)
                               : 'Connect first to send messages',
                         ),
                       ),
@@ -221,6 +257,46 @@ class _MessagesScreenState extends State<MessagesScreen> {
         ),
       ),
     );
+  }
+
+  static String _hintForFormat(PayloadFormat f) {
+    switch (f) {
+      case PayloadFormat.text:
+        return 'Type a message...';
+      case PayloadFormat.json:
+        return 'Paste JSON (e.g. {"a":1})';
+      case PayloadFormat.hex:
+        return 'HEX bytes (e.g. DE AD BE EF)';
+      case PayloadFormat.base64:
+        return 'Base64 (e.g. 3q2+7w==)';
+    }
+  }
+
+  static String _outgoingPreview(String input, PayloadFormat f) {
+    switch (f) {
+      case PayloadFormat.text:
+        return input;
+      case PayloadFormat.json:
+        return input; // pretty toggle will format it visually
+      case PayloadFormat.hex:
+        return '[HEX] $input';
+      case PayloadFormat.base64:
+        return '[Base64] $input';
+    }
+  }
+
+  static String _bytesToDisplay(Uint8List bytes) {
+    // try UTF-8 first
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {
+      // fallback to hex
+      final b = StringBuffer();
+      for (final v in bytes) {
+        b.write(v.toRadixString(16).padLeft(2, '0'));
+      }
+      return '[BIN ${bytes.length} bytes] ${b.toString().toUpperCase()}';
+    }
   }
 
   MqttQos _toQos(int v) {
@@ -300,8 +376,7 @@ class _MessageBubble extends StatelessWidget {
   }
 
   static String _ts(DateTime d) {
-    final s = d.toLocal().toString().split('.').first;
-    return s;
+    return d.toLocal().toString().split('.').first;
   }
 
   static String _pretty(String raw) {
