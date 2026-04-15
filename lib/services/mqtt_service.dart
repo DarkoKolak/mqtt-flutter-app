@@ -34,18 +34,14 @@ class MqttService {
         ? MqttServerClient(server, conn.clientId)
         : MqttServerClient.withPort(server, conn.clientId, conn.port);
 
-    // Make this client current BEFORE callbacks can fire
     _client = localClient;
 
     localClient.port = conn.port;
-
     localClient.logging(on: false);
 
-    // Keepalive + timeouts
     localClient.keepAlivePeriod = 20;
     localClient.connectTimeoutPeriod = 10;
 
-    // Avoid auto reconnect surprises while debugging
     localClient.autoReconnect = false;
     localClient.resubscribeOnAutoReconnect = false;
 
@@ -87,7 +83,6 @@ class MqttService {
     try {
       print('[MQTT] Connecting to $server (protocol=${conn.protocol}, tls=${conn.useTls})');
 
-      // HARD timeout so UI never stays "Connecting..." forever
       await localClient
           .connect(conn.username, conn.password)
           .timeout(const Duration(seconds: 12), onTimeout: () {
@@ -115,11 +110,8 @@ class MqttService {
     }
   }
 
-  // -------------------- Publish (multi-format) --------------------
+  // ---------------- Publish multi-format ----------------
 
-  /// Publish text/json/binary payloads.
-  /// - text/json -> UTF-8
-  /// - hex/base64 -> bytes
   void publishPayload(
     String topic,
     String input, {
@@ -135,12 +127,12 @@ class MqttService {
     final bytes = _encodeInput(input, format);
 
     final builder = MqttClientPayloadBuilder();
-    builder.addBuffer(Uint8Buffer()..addAll(bytes));
+    builder.addBuffer(Uint8Buffer()..addAll(bytes)); // Windows-safe
 
     c.publishMessage(topic, qos, builder.payload!, retain: retain);
   }
 
-  /// Backwards-compatible: old code calls publish(topic, text, ...)
+  // Backwards compatible
   void publish(
     String topic,
     String message, {
@@ -162,9 +154,7 @@ class MqttService {
         return Uint8List.fromList(utf8.encode(input));
 
       case PayloadFormat.json:
-        // Validate JSON (throws if invalid)
         final decoded = json.decode(input);
-        // Normalize JSON formatting before sending
         final normalized = json.encode(decoded);
         return Uint8List.fromList(utf8.encode(normalized));
 
@@ -180,7 +170,6 @@ class MqttService {
 
   Uint8List _hexToBytes(String hex) {
     final cleaned = hex.startsWith('0x') ? hex.substring(2) : hex;
-
     if (cleaned.isEmpty) return Uint8List(0);
     if (cleaned.length % 2 != 0) {
       throw const FormatException('HEX must have even length (2 chars per byte).');
@@ -196,12 +185,7 @@ class MqttService {
     return out;
   }
 
-  // -------------------- Other helpers --------------------
-
-  String _normalizeWsPath(String p) {
-    final path = p.trim().isEmpty ? '/mqtt' : p.trim();
-    return path.startsWith('/') ? path : '/$path';
-  }
+  // ---------------- Sub / Unsub ----------------
 
   void subscribe(String topic, MqttQos qos) {
     final c = _client;
@@ -214,20 +198,22 @@ class MqttService {
   void unsubscribe(String topic) {
     final c = _client;
     if (c == null) return;
-
     try {
       if (!isConnected) return;
       c.unsubscribe(topic);
-    } catch (e) {
-      print('[MQTT] Unsubscribe ignored error: $e');
-    }
+    } catch (_) {}
   }
 
   void disconnect() {
     final c = _client;
-    _client = null; // invalidate immediately so old callbacks are ignored
+    _client = null;
     try {
       c?.disconnect();
     } catch (_) {}
+  }
+
+  String _normalizeWsPath(String p) {
+    final path = p.trim().isEmpty ? '/mqtt' : p.trim();
+    return path.startsWith('/') ? path : '/$path';
   }
 }
